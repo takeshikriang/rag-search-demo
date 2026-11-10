@@ -62,6 +62,32 @@ products.
 
 ## Architecture
 
+Query journey — what happens when a user asks "best polarized sunglasses for driving":
+
+```
+Browser                Worker (src/server-entry.ts)          Cloudflare
+───────                ───────────────────────────           ──────────
+1. useMutation ──POST /api/chat──▶ handleChat (api.ts)
+                          │
+                          ▼ 2. embed query
+                    AI.run(bge-base-en-v1.5) ────────────▶  Workers AI → 768-dim vector
+                          │        ("driving…polarized…glare" as 768 floats)
+                          ▼ 3. semantic search
+                    VECTORIZE.query(vec, topK: 6) ────────▶  Vectorize → cosine nearest
+                          │         neighbors: [ray-ban-chromance…, oakley-holbrook…]
+                          ▼ 4. hydrate rows
+                    DB.prepare("…WHERE id IN (?,?,?,?,?,?)")▶ D1 → full product rows
+                          │
+                          ▼ 5. build prompt + call LLM
+                    AI.run(llama-3.3-70b, {messages}) ────▶  Workers AI → natural reply
+                          │
+6. renders reply  ◀──JSON {reply, products}──┘
+   + product cards
+```
+
+The LLM only sees the 6 retrieved products — it cannot invent SKUs, and the
+system prompt instructs it to say so if nothing fits. Ingestion path:
+
 ```
 POST /api/chat
   query → embed (Workers AI bge-base-en-v1.5)
