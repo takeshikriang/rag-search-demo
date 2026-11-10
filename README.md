@@ -6,7 +6,7 @@ D1 product catalog, ranked with Vectorize semantic search and Workers AI
 embeddings + LLM.
 
 Stack: TanStack Start + TanStack Router + TanStack Query · Tailwind v4 ·
-Cloudflare Workers AI, Vectorize, D1 · TypeScript strict.
+Cloudflare Workers AI (via AI Gateway), Vectorize, D1 · TypeScript strict.
 
 ## Prerequisites
 
@@ -58,7 +58,13 @@ curl -X POST http://localhost:3000/api/chat \
 
 Returns `{ "reply": "...", "products": [...] }` — the reply comes from
 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, constrained to the matched
-products.
+products. Both AI calls route through the `rag-search-demo-gateway`
+AI Gateway (caching, logs, analytics):
+
+```sh
+# inspect recent gateway requests (model, tokens, cost, cache hits)
+cf ai-gateway logs list --gateway-id rag-search-demo-gateway
+```
 
 ## Architecture
 
@@ -70,7 +76,7 @@ Browser                Worker (src/server-entry.ts)          Cloudflare
 1. useMutation ──POST /api/chat──▶ handleChat (api.ts)
                           │
                           ▼ 2. embed query
-                    AI.run(bge-base-en-v1.5) ────────────▶  Workers AI → 768-dim vector
+                    AI.run(bge-base-en-v1.5) ── gateway ─▶  Workers AI → 768-dim vector
                           │        ("driving…polarized…glare" as 768 floats)
                           ▼ 3. semantic search
                     VECTORIZE.query(vec, topK: 6) ────────▶  Vectorize → cosine nearest
@@ -79,7 +85,7 @@ Browser                Worker (src/server-entry.ts)          Cloudflare
                     DB.prepare("…WHERE id IN (?,?,?,?,?,?)")▶ D1 → full product rows
                           │
                           ▼ 5. build prompt + call LLM
-                    AI.run(llama-3.3-70b, {messages}) ────▶  Workers AI → natural reply
+                    AI.run(llama-3.3-70b, {messages}) ─ gateway ─▶  Workers AI → natural reply
                           │
 6. renders reply  ◀──JSON {reply, products}──┘
    + product cards
@@ -94,7 +100,7 @@ POST /api/chat
         → Vectorize rag-search-db-product-index topK=6
         → map vector ids → D1 products lookup
         → prompt (ShadeFinder system prompt + up to 6 history messages + product lines)
-        → LLM (llama-3.3-70b-instruct-fp8-fast, non-streaming)
+        → LLM (llama-3.3-70b-instruct-fp8-fast, non-streaming, via AI Gateway)
         → { reply, products }
 
 POST /api/ingest
@@ -128,4 +134,5 @@ pnpm exec wrangler d1 execute rag-search-db --local --command "SELECT COUNT(*) F
 ```sh
 pnpm exec wrangler vectorize delete rag-search-db-product-index
 pnpm exec wrangler d1 delete rag-search-db
+cf ai-gateway gateways delete rag-search-demo-gateway --force
 ```

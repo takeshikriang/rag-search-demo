@@ -4,6 +4,11 @@ import type { ChatMessage, Product } from './types'
 
 const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5'
 const LLM_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+const AI_GATEWAY = {
+  id: 'rag-search-demo-gateway',
+  skipCache: false,
+  cacheTtl: 3600,
+}
 const TOP_K = 6
 const MAX_HISTORY = 6
 const EMBED_BATCH_SIZE = 16
@@ -32,7 +37,7 @@ async function embed(texts: string[]): Promise<number[][]> {
   const batches: number[][] = []
   for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
     const chunk = texts.slice(i, i + EMBED_BATCH_SIZE)
-    const response = await env.AI.run(EMBEDDING_MODEL, { text: chunk })
+    const response = await env.AI.run(EMBEDDING_MODEL, { text: chunk }, { gateway: AI_GATEWAY })
     if (!('data' in response) || !response.data) {
       throw new Error(`Embedding model returned no data for batch at offset ${i}`)
     }
@@ -104,7 +109,7 @@ async function generateReply(query: string, history: ChatMessage[], products: Pr
     ...recent.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: `Customer question: ${query}\n\nAvailable products:\n${formatProducts(products)}` },
   ]
-  const result = await env.AI.run(LLM_MODEL, { messages })
+  const result = await env.AI.run(LLM_MODEL, { messages }, { gateway: AI_GATEWAY })
   const raw = typeof result === 'string' ? result : 'response' in result ? result.response : undefined
   const reply = raw?.trim()
   if (!reply) throw new Error('LLM returned an empty response')
